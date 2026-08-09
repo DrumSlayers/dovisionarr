@@ -28,16 +28,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+      # The smoke test needs Debian's full ffmpeg to synthesise fixtures, so it
+      # runs against --target test. That stage is `runtime` plus fixture
+      # tooling; the pipeline itself still resolves the shipped minimal
+      # binaries from /usr/local/bin.
       - name: build (amd64, load into the local daemon)
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: test
           load: true
           tags: dovisionarr:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: end to end smoke test
         run: ./test/smoke.sh dovisionarr:test
+
+      - name: build the shipped image and report its size
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          load: true
+          tags: dovisionarr:size
+          cache-from: type=gha
+      - name: size
+        run: |
+          docker image ls --format '{{.Size}}' dovisionarr:size \
+            | sed 's/^/uncompressed image size: /'
 
   publish:
     needs: [lint, test]
@@ -67,6 +85,7 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
+          target: runtime
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
