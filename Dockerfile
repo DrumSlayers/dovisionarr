@@ -41,16 +41,15 @@ RUN set -eux; \
 FROM debian:trixie-slim AS ffbuild
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG FFMPEG_VERSION
+WORKDIR /src
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         build-essential ca-certificates curl nasm pkg-config xz-utils zlib1g-dev; \
     rm -rf /var/lib/apt/lists/*; \
-    mkdir -p /src; \
     curl -fsSL --retry 3 --retry-delay 2 \
       "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n${FFMPEG_VERSION}.tar.gz" \
       | tar -xz -C /src --strip-components=1; \
-    cd /src; \
     [ "$(cat RELEASE)" = "${FFMPEG_VERSION}" ]; \
     ./configure \
       --prefix=/ffout \
