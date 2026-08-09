@@ -1,0 +1,38 @@
+services:
+  dovisionarr:
+    image: ghcr.io/drumslayers/dovisionarr:latest
+    container_name: dovisionarr
+    restart: unless-stopped
+
+    environment:
+      # Must match the UID/GID Sonarr, Radarr and your media use.
+      PUID: 1000
+      PGID: 1000
+      TZ: Europe/Paris
+
+      # Nightly library sweep. Catches season packs, manual imports and
+      # anything that landed while the container was down.
+      SCAN_ENABLED: "true"
+      SCAN_WINDOW: "02:00-06:00"   # start at 02:00, stop cleanly at 06:00
+      SCAN_DAYS: "*"               # or "sun" for once a week
+      SCAN_PATHS: "/media"         # colon separated for several roots, don't edit if unsure (maps to the volume binding)
+
+      # SCRATCH_DIR: /scratch     # see the scratch volume at the bottom
+      # LOG_LEVEL: debug
+      # DRY_RUN: "true"           # probe and report, write nothing
+
+    volumes:
+      # Your media. Use the SAME path here as in Sonarr/Radarr, otherwise the
+      # paths they queue will not resolve inside this container.
+      - /mnt/library1:/media
+
+      # Shared with Sonarr/Radarr, this is how they hand work over.
+      - ./queue:/queue
+
+      # Scan cache, heartbeat, lock.
+      - ./state:/state
+
+      # Optional but recommended: put the temporary base layer on a different,
+      # faster disk (like NVMe SDD) so the media array only does one read and one write.
+      # Uncomment this together with SCRATCH_DIR: /scratch above.
+      # - /srv/dovisionarr/scratch:/scratch

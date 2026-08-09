@@ -1,0 +1,6 @@
+ignored:
+  # Debian package versions are deliberately unpinned: the image is rebuilt
+  # weekly so it picks up ffmpeg and mkvtoolnix security updates.
+  - DL3008
+  # HEALTHCHECK needs shell form for the timestamp arithmetic.
+  - DL3025

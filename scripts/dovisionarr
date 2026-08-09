@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# dovisionarr — Dolby Vision Profile 7 to Profile 8.1, in place, no re-encode.
+set -uo pipefail
+
+# readlink, because /usr/local/bin/dovisionarr is a symlink into /opt/dovisionarr.
+LIB_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck source=lib.sh
+. "$LIB_DIR/lib.sh"
+# shellcheck source=convert.sh
+. "$LIB_DIR/convert.sh"
+# shellcheck source=scan.sh
+. "$LIB_DIR/scan.sh"
+# shellcheck source=worker.sh
+. "$LIB_DIR/worker.sh"
+
+usage() {
+  cat <<USAGE
+dovisionarr ${DOVISIONARR_VERSION}
+
+  dovisionarr worker              watch the queue, run scheduled scans (default)
+  dovisionarr scan [PATH...]      convert every Profile 7 file under PATH
+  dovisionarr report [PATH...]    list Profile 7 files, change nothing
+  dovisionarr convert FILE...     convert specific files
+  dovisionarr probe FILE...       print the Dolby Vision details of a file
+  dovisionarr version
+
+Paths default to SCAN_PATHS (${SCAN_PATHS:-/media}).
+Configuration is environment based — see the README.
+USAGE
+}
+
+cmd_probe() {
+  local f m
+  for f in "$@"; do
+    m="$(probe_json "$f")"
+    if [ -z "$m" ] || [ "$(jq -r '.video' <<<"$m")" = "0" ]; then
+      warn "no video stream: $(path "$f")"; continue
+    fi
+    printf '%s\n' "$(path "$f")"
+    jq -r --arg c "$C_BOLD" --arg r "$C_RESET" '
+      "  codec      \($c)\(.codec)\($r)",
+      "  duration   \($c)\(.duration | floor | "\(./3600|floor)h\((.%3600)/60|floor)m\(.%60)s")\($r)",
+      "  tracks     \($c)\(.audio)\($r) audio, \($c)\(.subtitle)\($r) subtitle",
+      "  dv profile \($c)\(.dv.dv_profile // "none")\($r)" +
+        (if .dv then "  ·  el=\(.dv.el_present_flag)  ·  rpu=\(.dv.rpu_present_flag)  ·  bl_compat=\(.dv.dv_bl_signal_compatibility_id)" else "" end),
+      "  verdict    " + (if (.dv.dv_profile // 0) == 7 then "\($c)needs conversion\($r)" else "leave alone" end)
+    ' <<<"$m"
+  done
+}
+
+main() {
+  local cmd="${1:-worker}"; shift || true
+  case "$cmd" in
+    worker)          run_worker ;;
+    scan)            banner; scan_paths false "$@" ;;
+    report|dry-run)  banner; scan_paths true  "$@" ;;
+    convert)
+      [ "$#" -gt 0 ] || { usage; exit 2; }
+      local f rc=0
+      for f in "$@"; do convert_file "$f" || rc=1; done
+      exit "$rc" ;;
+    probe|info)
+      [ "$#" -gt 0 ] || { usage; exit 2; }
+      cmd_probe "$@" ;;
+    version|--version|-v) echo "dovisionarr ${DOVISIONARR_VERSION}" ;;
+    help|--help|-h)       usage ;;
+    *) error "unknown command: $cmd"; usage; exit 2 ;;
+  esac
+}
+
+main "$@"
