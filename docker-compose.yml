@@ -17,7 +17,12 @@ services:
       SCAN_DAYS: "*"               # or "sun" for once a week
       SCAN_PATHS: "/media"         # colon separated for several roots, don't edit if unsure (maps to the volume binding)
 
-      # SCRATCH_DIR: /scratch     # see the scratch volume at the bottom
+      # Only needed when the media is NOT mounted at the same path here as in
+      # Sonarr/Radarr. Left: what they see. Right: what dovisionarr sees.
+      # PATH_MAP: "/library1:/media"
+
+      # SCRATCH_DIR: /path        # only to override the scratch volume at the
+      #                           # bottom — mounting it is enough on its own
       # LOG_LEVEL: debug
       # DRY_RUN: "true"           # probe and report, write nothing
 
@@ -33,6 +38,6 @@ services:
       - ./state:/state
 
       # Optional but recommended: put the temporary base layer on a different,
-      # faster disk (like NVMe SDD) so the media array only does one read and one write.
-      # Uncomment this together with SCRATCH_DIR: /scratch above.
-      # - /srv/dovisionarr/scratch:/scratch
+      # faster disk (like NVMe SSD) so the media array only does one read and one write.
+      # Uncommenting this is all it takes — /scratch is detected automatically.
+      # - /mnt/nvme/dovisionarr:/scratch

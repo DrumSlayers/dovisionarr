@@ -119,9 +119,19 @@ docker compose up -d
 docker logs -f dovisionarr
 ```
 
-> **The media path must match.** Radarr hands over the path *it* sees. If Radarr has
-> `/mnt/library1:/library1`, then dovisionarr needs `/mnt/library1:/library1` too, not `/media`.
-> Same string, both sides. This is the one thing people get wrong.
+> **The media path should match.** Radarr hands over the path *it* sees. If Radarr has
+> `/mnt/library1:/library1`, then the simplest setup is `/mnt/library1:/library1` on dovisionarr
+> too — same string, both sides — with `SCAN_PATHS: "/library1"`.
+>
+> If you cannot or do not want to change the mount, map the paths instead:
+>
+> ```yaml
+>       PATH_MAP: "/library1:/media"   # what the *arrs see : what dovisionarr sees
+> ```
+>
+> With neither of those, dovisionarr still tries to find the queued file under `SCAN_PATHS`
+> by matching the tail of the path, and logs the translation it used. Set `PATH_MAP_AUTO: "false"`
+> to turn that off and drop unresolvable jobs instead.
 
 ### 2. Wire up Sonarr and Radarr
 
@@ -182,7 +192,10 @@ Everything is environment variables. All of them are optional.
 | `SCAN_EXCLUDE` | `downloads,remote_sync,incomplete,.recycle` | Directory names never entered. |
 | `SCAN_STOP_AT_WINDOW_END` | `true` | Stop cleanly when the window closes, resume next night. |
 | `SCAN_CACHE` | `true` | Remember which files are not P7, so re-scans are fast. |
-| `SCRATCH_DIR` | next to the media | Where the temporary base layer goes. See [disk I/O](#one-temporary-file-and-why). |
+| `SCAN_PROGRESS_EVERY` | `200` | Log a progress line every N files scanned. `0` turns it off. |
+| `PATH_MAP` | unset | Translate the paths Sonarr/Radarr queue. `"/library1:/media"`, comma-separated for several. |
+| `PATH_MAP_AUTO` | `true` | When a queued path does not resolve, look for the same file under `SCAN_PATHS`. |
+| `SCRATCH_DIR` | `/scratch` when mounted, else next to the media | Where the temporary base layer goes. Bind-mounting a disk at `/scratch` is enough — you do not have to set this. See [disk I/O](documentation/how-it-works.md#one-temporary-file-and-why). |
 | `DRY_RUN` | `false` | Probe and report, never write. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error`. |
 | `LOG_COLOR` | `auto` | `always`, `never`. `NO_COLOR=1` also works. |
@@ -278,9 +291,20 @@ at 80 TB of media anyway.
 Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free to use, modify and
 redistribute for any noncommercial purpose, as long as you keep the copyright notice.
 
-The container bundles third-party tools under their own licenses: ffmpeg and mkvtoolnix (GPL),
-dovi_tool (MIT), jq (MIT), tini (MIT), gosu (Apache-2.0). dovisionarr only invokes them as
-separate processes, so their terms apply to those binaries, not to this project's scripts.
+The container bundles third-party tools under their own licenses: mkvtoolnix (GPL), ffmpeg
+(LGPL-2.1+ — built from source with no GPL components, see below), dovi_tool (MIT), jq (MIT),
+tini (MIT), gosu (Apache-2.0). dovisionarr only invokes them as separate processes, so their
+terms apply to those binaries, not to this project's scripts.
+
+ffmpeg is not the distribution package. It is compiled in the `ffbuild` stage of the
+[Dockerfile](Dockerfile) with `--disable-everything`, then re-enabled down to what the pipeline
+touches: the Matroska demuxer, the HEVC parser, decoder and muxer, the `hevc_mp4toannexb`
+bitstream filter, and the file and pipe protocols. No encoders, no filters, no network, no
+`libavdevice`. The distribution build would otherwise pull in the NVIDIA encode stubs, x264,
+x265, the AV1 encoders, Bluray and DVD readers and SDL2 — several hundred megabytes of
+dependency closure for a container that only ever runs `-c:v copy`. Bump `FFMPEG_VERSION` in the
+Dockerfile to pick up upstream fixes; unlike the apt packages it is pinned and does not move on
+the weekly rebuild.
 
 ---
 

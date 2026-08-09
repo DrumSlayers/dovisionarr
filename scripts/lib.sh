@@ -59,6 +59,19 @@ ART
 # ------------------------------------------------------------------ utils ----
 is_true() { case "${1,,}" in 1|true|yes|on|enabled) return 0 ;; *) return 1 ;; esac; }
 
+# ---------------------------------------------------------------- scratch ----
+# The image creates /queue, /state and /media but never /scratch, so a /scratch
+# that exists is one Docker made for a bind mount. Mounting the disk is the
+# whole configuration: SCRATCH_DIR still wins when set, and with no mount at all
+# the base layer is written next to the media file as before.
+DEFAULT_SCRATCH_DIR="${DEFAULT_SCRATCH_DIR:-/scratch}"
+_SCRATCH_AUTO=false
+if [ -z "${SCRATCH_DIR:-}" ] && [ -d "$DEFAULT_SCRATCH_DIR" ]; then
+  SCRATCH_DIR="$DEFAULT_SCRATCH_DIR"
+  _SCRATCH_AUTO=true
+  export SCRATCH_DIR
+fi
+
 # Heavy tools run de-prioritised so the host stays responsive mid-conversion.
 LOWPRIO=(nice -n "${NICE:-10}")
 if [ "${IONICE:-true}" != "false" ] && command -v ionice >/dev/null 2>&1; then
@@ -72,6 +85,73 @@ human() {  # bytes -> human readable
 elapsed() {  # seconds -> 1h02m03s
   local s="$1"
   printf '%dh%02dm%02ds' $((s/3600)) $(((s%3600)/60)) $((s%60))
+}
+
+# -------------------------------------------------------- path translation ----
+# Sonarr and Radarr queue the path *they* see. When dovisionarr mounts the same
+# media somewhere else — /library1 there, /media here — that path resolves to
+# nothing and every queued job is dropped. PATH_MAP fixes it explicitly, and a
+# suffix search against SCAN_PATHS catches the setups that never set it.
+#
+#   PATH_MAP="/library1:/media"                   one mapping
+#   PATH_MAP="/library1:/media,/tv:/media/TV"     several, first match wins
+
+# map_path PATH -> PATH with PATH_MAP applied, unchanged when nothing matches
+map_path() {
+  local p="$1" pair from to
+  local IFS=','
+  # shellcheck disable=SC2206
+  local pairs=(${PATH_MAP:-})
+  unset IFS
+  for pair in "${pairs[@]}"; do
+    [ -n "$pair" ] || continue
+    from="${pair%%:*}"; to="${pair#*:}"
+    from="${from%/}"; to="${to%/}"
+    if [ -z "$from" ] || [ -z "$to" ]; then continue; fi
+    case "$p" in
+      "$from"/*) printf '%s\n' "$to/${p#"$from"/}"; return 0 ;;
+      "$from")   printf '%s\n' "$to"; return 0 ;;
+    esac
+  done
+  printf '%s\n' "$p"
+}
+
+# find_by_suffix PATH -> an existing file under one of SCAN_PATHS whose trailing
+# components match PATH. One leading component is dropped at a time, so
+# /library1/Films/A/B.mkv is tried as <root>/Films/A/B.mkv, then <root>/A/B.mkv.
+find_by_suffix() {
+  local p="$1" root rest cand
+  local IFS=':'
+  # shellcheck disable=SC2206
+  local roots=(${SCAN_PATHS:-/media})
+  unset IFS
+  rest="${p#/}"
+  while [ -n "$rest" ]; do
+    for root in "${roots[@]}"; do
+      cand="${root%/}/$rest"
+      if [ "$cand" != "$p" ] && [ -f "$cand" ]; then
+        printf '%s\n' "$cand"; return 0
+      fi
+    done
+    case "$rest" in */*) rest="${rest#*/}" ;; *) break ;; esac
+  done
+  return 1
+}
+
+# resolve_media_path PATH -> a path that exists in this container, or nothing.
+# Written without trailing `&&` lists so it stays safe to call under `set -e`.
+resolve_media_path() {
+  local p="$1" m
+  if [ -z "$p" ]; then return 1; fi
+  if [ -f "$p" ]; then printf '%s\n' "$p"; return 0; fi
+
+  m="$(map_path "$p")"
+  if [ "$m" != "$p" ] && [ -f "$m" ]; then printf '%s\n' "$m"; return 0; fi
+
+  if is_true "${PATH_MAP_AUTO:-true}"; then
+    if m="$(find_by_suffix "$p")"; then printf '%s\n' "$m"; return 0; fi
+  fi
+  return 1
 }
 
 # ------------------------------------------------------------------ probe ----

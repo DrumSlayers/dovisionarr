@@ -144,15 +144,21 @@ pointing at an SSD, the media array only ever does one sequential read and one s
 
 | | media disk | scratch disk |
 |---|---|---|
-| `SCRATCH_DIR` unset (default) | read 2×, write 2× | — |
-| `SCRATCH_DIR=/scratch` on another disk | **read 1×, write 1×** | read 1×, write 1× |
+| no scratch mount (default) | read 2×, write 2× | — |
+| a disk mounted at `/scratch` | **read 1×, write 1×** | read 1×, write 1× |
+
+Mounting the disk is the whole configuration. The image does not create `/scratch`, so a
+`/scratch` that exists is one you bind mounted, and dovisionarr picks it up on its own:
 
 ```yaml
-    environment:
-      SCRATCH_DIR: /scratch
     volumes:
       - /mnt/nvme/dovisionarr:/scratch
 ```
+
+Set `SCRATCH_DIR` only to point somewhere else. The difference matters when it goes wrong: an
+auto-detected `/scratch` that turns out not to be writable logs a warning and falls back to
+writing next to the media, while an explicit `SCRATCH_DIR` you cannot write to fails the
+conversion — you asked for that disk, so silently using another one would be worse.
 
 The extraction step itself is already piped — the dual-layer stream is read once and never
 written anywhere.

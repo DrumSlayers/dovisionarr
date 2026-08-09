@@ -50,6 +50,9 @@ scan_paths() {
   local total=0 found=0 converted=0 failed=0 skipped=0 cached=0
   local root f key profile
   local fresh; fresh="$(mktemp)"
+  # Probing a big library is quiet work. A heartbeat every SCAN_PROGRESS_EVERY
+  # files keeps `docker logs` alive without a line per title. 0 turns it off.
+  local every="${SCAN_PROGRESS_EVERY:-200}"
 
   for root in "${roots[@]}"; do
     [ -d "$root" ] || { warn "scan path does not exist: $(path "$root")"; continue; }
@@ -57,6 +60,10 @@ scan_paths() {
 
     while IFS= read -r -d '' f; do
       total=$((total+1))
+      if [ "$every" -gt 0 ] && [ $((total % every)) -eq 0 ]; then
+        info "scanned $(num "$total") files so far · $(num "$found") profile 7 · $(num "$converted") converted"
+      fi
+      debug "probing $(path "$f")"
       key="$(stat -c '%n|%s|%Y' "$f" 2>/dev/null)"
 
       if [ "$use_cache" = true ] && [ -n "${_SEEN[$key]:-}" ]; then

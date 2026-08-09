@@ -29,6 +29,11 @@ convert_file() {
   esac
 
   # ---------------------------------------------------------------- probe ----
+  # One line in, one line out, at info level: a long run has to be readable in
+  # `docker logs` without turning on debug.
+  local name; name="$(basename "$src")"
+  step "processing $(path "$name")"
+
   local meta profile el compat
   meta="$(probe_json "$src")"
   [ -n "$meta" ] || { error "ffprobe returned nothing for $(path "$src")"; return 1; }
@@ -37,7 +42,7 @@ convert_file() {
   compat="$(jq -r  '.dv.dv_bl_signal_compatibility_id // "-"' <<<"$meta")"
 
   if [ "$profile" != "7" ] && ! is_true "${FORCE:-false}"; then
-    debug "skip, dv profile $profile: $(path "$(basename "$src")")"
+    info "  dv profile $(num "$profile") — nothing to do, left untouched"
     return 0
   fi
 
@@ -53,8 +58,7 @@ convert_file() {
   fi
 
   local size; size="$(stat -c %s "$src")"
-  step "P7 → P8.1  $(path "$(basename "$src")")"
-  info "  source $(num "$(human "$size")")  ·  dv profile $(num "$profile")  ·  el=$el  ·  bl_compat=$compat"
+  info "  converting P7 → P8.1  ·  source $(num "$(human "$size")")  ·  el=$el  ·  bl_compat=$compat"
 
   if is_true "${DRY_RUN:-false}"; then
     warn "  DRY_RUN is on — nothing written"
@@ -66,8 +70,18 @@ convert_file() {
   dst_dir="$(dirname "$src")"
   scratch_dir="${SCRATCH_DIR:-$dst_dir}"
   mkdir -p "$scratch_dir" 2>/dev/null || true
-  [ -w "$scratch_dir" ] || { error "  scratch dir not writable: $(path "$scratch_dir")"; return 1; }
-  [ -w "$dst_dir" ]     || { error "  media dir not writable: $(path "$dst_dir")"; return 1; }
+  if [ ! -w "$scratch_dir" ]; then
+    # An explicit SCRATCH_DIR is an instruction, so a broken one is an error.
+    # An auto-detected /scratch is a convenience, so a broken one just steps
+    # aside rather than failing every conversion.
+    if [ "${_SCRATCH_AUTO:-false}" = true ]; then
+      warn "  $(path "$scratch_dir") is not writable — writing next to the media instead"
+      scratch_dir="$dst_dir"
+    else
+      error "  scratch dir not writable: $(path "$scratch_dir")"; return 1
+    fi
+  fi
+  [ -w "$dst_dir" ] || { error "  media dir not writable: $(path "$dst_dir")"; return 1; }
 
   # The base layer is the source minus the enhancement layer; the remux is
   # roughly the source. Ask for a little more than that on each filesystem.
@@ -169,6 +183,6 @@ convert_file() {
   _CV_TMP=''
 
   local took=$(( $(date +%s) - started ))
-  ok "converted in $(elapsed "$took")  ·  $(human "$size") → $(num "$(human "$newsize")")  ·  $(path "$(basename "$src")")"
+  ok "converted in $(elapsed "$took")  ·  $(human "$size") → $(num "$(human "$newsize")")  ·  $(path "$name")"
   return 0
 }

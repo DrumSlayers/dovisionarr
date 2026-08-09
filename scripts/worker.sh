@@ -11,7 +11,11 @@ run_worker() {
 
   banner
   info "queue      $(path "$queue")  (poll every ${POLL_INTERVAL:-15}s)"
-  info "scratch    $(path "${SCRATCH_DIR:-<next to each media file>}")"
+  if [ -n "${SCRATCH_DIR:-}" ]; then
+    info "scratch    $(path "$SCRATCH_DIR")$([ "${_SCRATCH_AUTO:-false}" = true ] && printf ' (detected mount)')"
+  else
+    info "scratch    next to each media file (mount a disk at $(path "$DEFAULT_SCRATCH_DIR") to move it)"
+  fi
   if is_true "${SCAN_ENABLED:-false}"; then
     info "scan       $(num "enabled")  ·  ${SCAN_PATHS:-/media}  ·  window ${SCAN_WINDOW:-02:00-06:00} on ${SCAN_DAYS:-*}"
   else
@@ -40,7 +44,7 @@ run_worker() {
 
 # ------------------------------------------------------------------ queue ----
 drain_queue() {
-  local queue="$1" job target
+  local queue="$1" job queued target
   for job in "$queue"/*.job; do
     [ -e "$job" ] || continue
 
@@ -50,11 +54,22 @@ drain_queue() {
     mv -n "$job" "$claim" 2>/dev/null || continue
     [ -f "$claim" ] || continue
 
-    target="$(head -n1 "$claim")"
-    if [ -z "$target" ] || [ ! -f "$target" ]; then
-      warn "queued file is gone, dropping job: $(path "${target:-<empty>}")"
+    # Sonarr and Radarr queue the path they see, which is not always the path
+    # this container sees. PATH_MAP and the suffix search sort that out.
+    queued="$(head -n1 "$claim")"
+    target="$(resolve_media_path "$queued")" || target=''
+    if [ -z "$target" ]; then
+      warn "queued file is gone, dropping job: $(path "${queued:-<empty>}")"
+      if [ -n "$queued" ]; then
+        local top root
+        top="${queued#/}"; top="/${top%%/*}"
+        root="${SCAN_PATHS:-/media}"; root="${root%%:*}"
+        [ -d "$top" ] || warn "  $(path "$top") does not exist in this container — mount your media at the same path Sonarr/Radarr use, or set PATH_MAP=\"$top:$root\""
+      fi
       rm -f "$claim"; continue
     fi
+    [ "$target" != "$queued" ] && \
+      info "queued path remapped: $(path "$queued") → $(path "$target")"
 
     info "picked up from queue: $(path "$(basename "$target")")"
     if convert_file "$target"; then
