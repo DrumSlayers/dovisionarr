@@ -71,7 +71,9 @@ drain_queue() {
     [ "$target" != "$queued" ] && \
       info "queued path remapped: $(path "$queued") → $(path "$target")"
 
-    info "picked up from queue: $(path "$(basename "$target")")"
+    # Debug: most queued files turn out not to be P7. convert_file prints an
+    # info line as soon as there is something to convert.
+    debug "picked up from queue: $(path "$(basename "$target")")"
     if convert_file "$target"; then
       rm -f "$claim"
     else

@@ -29,10 +29,10 @@ convert_file() {
   esac
 
   # ---------------------------------------------------------------- probe ----
-  # One line in, one line out, at info level: a long run has to be readable in
-  # `docker logs` without turning on debug.
+  # Probing is silent at info level. Most files the *arrs queue are not P7, and
+  # a line per skipped file would bury the conversions that matter in
+  # `docker logs`; the work announces itself below, once there is work.
   local name; name="$(basename "$src")"
-  step "processing $(path "$name")"
 
   local meta profile el compat
   meta="$(probe_json "$src")"
@@ -42,9 +42,12 @@ convert_file() {
   compat="$(jq -r  '.dv.dv_bl_signal_compatibility_id // "-"' <<<"$meta")"
 
   if [ "$profile" != "7" ] && ! is_true "${FORCE:-false}"; then
-    info "  dv profile $(num "$profile") — nothing to do, left untouched"
+    debug "dv profile $profile — nothing to do, left untouched: $(path "$name")"
     return 0
   fi
+
+  # From here on there is real work, so it gets an info line of its own.
+  step "processing $(path "$name")"
 
   # Conversions are disk bound, so only one runs at a time across the whole
   # container: worker, scheduled scan and a manual `docker exec` all queue up
@@ -134,7 +137,10 @@ convert_file() {
   [ -n "$vlang" ] && mkvargs+=(--language "0:$vlang")
   mkvargs+=("$_CV_BL" -D "$src")
 
-  info "  remuxing with all audio, subtitles, chapters and attachments"
+  # No info line here: the remux always carries every audio, subtitle, chapter
+  # and attachment, so saying so adds nothing. The one case that varies —
+  # variable frame rate — already warns above.
+  debug "  remuxing: mkvmerge ${mkvargs[*]}"
   if ! "${LOWPRIO[@]}" mkvmerge "${mkvargs[@]}"; then
     error "  mkvmerge failed"
     return 1
