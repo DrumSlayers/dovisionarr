@@ -316,7 +316,7 @@ redistribute for any noncommercial purpose, as long as you keep the copyright no
 
 The container bundles third-party tools under their own licenses: mkvtoolnix (GPL), ffmpeg
 (LGPL-2.1+ — built from source with no GPL components, see below), dovi_tool (MIT), jq (MIT),
-tini (MIT), gosu (Apache-2.0). dovisionarr only invokes them as separate processes, so their
+tini (MIT), su-exec (MIT). dovisionarr only invokes them as separate processes, so their
 terms apply to those binaries, not to this project's scripts.
 
 ffmpeg is not the distribution package. It is compiled in the `ffbuild` stage of the

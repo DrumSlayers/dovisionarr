@@ -21,7 +21,7 @@ pass() { echo "  ok — $*"; }
 # Two ffmpegs live in the test image and the distinction is the point.
 #   /usr/local/bin  the stripped-down build that ships: demux Matroska, rewrite
 #                   HEVC to Annex-B, probe. No encoders, no lavfi, no network.
-#   /usr/bin        Debian's full build, present only in the --target test
+#   /usr/bin        Alpine's full build, present only in the --target test
 #                   stage, used to synthesise fixtures and nothing else.
 # Every assertion below goes through the shipped binaries.
 FIXTURE_FFMPEG=/usr/bin/ffmpeg

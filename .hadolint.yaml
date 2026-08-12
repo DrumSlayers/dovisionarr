@@ -1,8 +1,8 @@
 ignored:
-  # Debian package versions are deliberately unpinned: the image is rebuilt
+  # apk package versions are deliberately unpinned: the image is rebuilt
   # weekly so it picks up mkvtoolnix and base image security updates. ffmpeg is
   # not among them — it is built from a pinned source tarball in the ffbuild
   # stage, so FFMPEG_VERSION has to be bumped by hand.
-  - DL3008
+  - DL3018
   # HEALTHCHECK needs shell form for the timestamp arithmetic.
   - DL3025

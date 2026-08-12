@@ -26,7 +26,7 @@ if [ "$(id -u)" = "0" ] && [ "$PUID" != "0" ]; then
   if [ -d "$SCRATCH" ]; then
     chown dovisionarr:dovisionarr "$SCRATCH" 2>/dev/null || true
   fi
-  exec gosu dovisionarr "$0" "$@"
+  exec su-exec dovisionarr "$0" "$@"
 fi
 
 exec /opt/dovisionarr/dovisionarr "$@"

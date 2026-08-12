@@ -28,7 +28,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      # The smoke test needs Debian's full ffmpeg to synthesise fixtures, so it
+      # The smoke test needs Alpine's full ffmpeg to synthesise fixtures, so it
       # runs against --target test. That stage is `runtime` plus fixture
       # tooling; the pipeline itself still resolves the shipped minimal
       # binaries from /usr/local/bin.
