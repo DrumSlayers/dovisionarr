@@ -190,7 +190,7 @@ Everything is environment variables. All of them are optional.
 | `SCAN_DAYS` | `*` | `*`, or a list like `sun` / `sat,sun`. |
 | `SCAN_PATHS` | `/media` | Colon-separated roots to sweep. |
 | `SCAN_EXCLUDE` | `downloads,remote_sync,incomplete,.recycle` | Directory names never entered. |
-| `SCAN_STOP_AT_WINDOW_END` | `true` | Stop cleanly when the window closes, resume next night. |
+| `SCAN_STOP_AT_WINDOW_END` | `true` | Stop converting when the window closes, resume next night. Never applies to a manual `scan`. |
 | `SCAN_CACHE` | `true` | Remember which files are not P7, so re-scans are fast. |
 | `SCAN_PROGRESS_EVERY` | `200` | Log a progress line every N files scanned. `0` turns it off. |
 | `PATH_MAP` | unset | Translate the paths Sonarr/Radarr queue. `"/library1:/media"`, comma-separated for several. |
@@ -205,19 +205,42 @@ Everything is environment variables. All of them are optional.
 
 ### The scheduled scan
 
-The worker checks the clock every poll; when the window opens it starts sweeping, and when the window closes it finishes the file
-it is on and stops. It runs at most once per window.
+A scan is two passes on two different clocks, because the work is two different sizes.
+
+**Walking** reads a few hundred KB of header per file, so a whole library is quiet, cheap I/O and
+`SCAN_CACHE` makes every pass after the first one minutes. It is not bound by the window, and it
+hands the queue a turn every `SCAN_PROGRESS_EVERY` files. Profile 7 files it finds go on a
+worklist at `$STATE_DIR/pending`.
+
+**Converting** drains that worklist, one title at a time, and *is* bound by the window: it
+finishes the file it is on, then stops. The worklist is a file on disk, so a night that only
+manages one conversion starts the next one exactly where it stopped — across windows, restarts
+and container recreations.
 
 ```
  00:00        02:00                                06:00            24:00
-   │            ├───────────── scanning ─────────────┤                │
+   │            ├──────────── converting ───────────┤                │
    │            ▲                                    ▲                │
    │      window opens,                    window closes, current file
-   │      scan starts                      finishes, then it stops
+   │      worklist drains                  finishes, the rest waits
+   ├──── walking, whenever the worker is otherwise idle ─────────────┤
 ```
 
+The window is claimed as done only once the worklist is empty, so a sweep too big for one night
+picks itself up the next one instead of being skipped.
+
 A season pack that imports at 03:15 still gets converted immediately through the queue — the
-scan is the safety net for manual imports, downtime and anything the hook missed.
+scan is the safety net for manual imports, downtime and anything the hook missed. The queue is
+checked between every conversion, so a run of imports can no longer hold the worker long enough
+for a whole maintenance window to open and close unnoticed.
+
+### After a hard kill
+
+`docker kill`, an OOM or a host reboot can stop the worker mid-conversion. On the next start it
+puts back any job it had claimed (`*.running` in the queue) and deletes the temp files that
+conversion stranded — a killed 4K remux leaves tens of GB behind on the scratch disk. Both are
+logged as warnings. The media itself is never at risk: the original is only replaced by an
+atomic rename once the new file has been verified.
 
 ---
 

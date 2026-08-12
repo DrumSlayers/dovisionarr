@@ -126,7 +126,11 @@ ENV DOVISIONARR_VERSION="${VERSION}" \
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
   CMD test $(( $(date +%s) - $(cat "$STATE_DIR/heartbeat") )) -lt 120
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/opt/dovisionarr/entrypoint.sh"]
+# -g: signals go to the whole process group, so a `docker stop` reaches ffmpeg,
+# dovi_tool and mkvmerge as well. Without it a conversion keeps running until
+# the stop timeout expires and is then SIGKILLed, which strands the temp files
+# the shell traps would otherwise have removed.
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/opt/dovisionarr/entrypoint.sh"]
 CMD ["worker"]
 
 # --------------------------------------------------------------------------- #

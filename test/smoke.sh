@@ -126,6 +126,88 @@ dovisionarr report /tmp/media
 dovisionarr scan /tmp/media
 pass "scan completed"
 
+# Everything below drives the worker internals directly. There is no Profile 7
+# fixture — a dual layer file cannot be synthesised with dovi_tool alone — so
+# the probe and the conversion are stubbed and what is under test is the
+# scheduling around them, which is exactly where the bugs were.
+# shellcheck source=../scripts/convert.sh
+. /opt/dovisionarr/convert.sh
+# shellcheck source=../scripts/scan.sh
+. /opt/dovisionarr/scan.sh
+# shellcheck source=../scripts/worker.sh
+. /opt/dovisionarr/worker.sh
+
+echo "== a job left .running by a kill is re-queued at startup =="
+mkdir -p /tmp/orphanq
+echo /tmp/media/dv.mkv > /tmp/orphanq/1234-1.running
+reclaim_orphan_jobs /tmp/orphanq
+[ -f /tmp/orphanq/1234-1.job ]      || fail "orphaned .running job was not re-queued"
+[ ! -e /tmp/orphanq/1234-1.running ] || fail ".running file survived the reclaim"
+pass "re-queued"
+
+echo "== temp files stranded by a kill are swept at startup =="
+mkdir -p /tmp/sweepscratch /tmp/sweepmedia
+: > /tmp/sweepscratch/.dovisionarr-bl-AAAAAA.hevc
+: > /tmp/sweepmedia/.dovisionarr-out-BBBBBB.mkv
+: > /tmp/sweepmedia/real.mkv
+SCRATCH_DIR=/tmp/sweepscratch SCAN_PATHS=/tmp/sweepmedia sweep_stale_temps
+[ ! -e /tmp/sweepscratch/.dovisionarr-bl-AAAAAA.hevc ] || fail "base layer temp survived the sweep"
+[ ! -e /tmp/sweepmedia/.dovisionarr-out-BBBBBB.mkv ]   || fail "remux temp survived the sweep"
+[ -e /tmp/sweepmedia/real.mkv ]                        || fail "the sweep removed real media"
+pass "both temps gone, media untouched"
+
+echo "== the walk runs outside the window, the conversions do not =="
+# The reported failure: a four hour window went into two conversions twenty
+# files deep and the walk never reached the rest of the library. Discovery and
+# conversion are separate passes now, and only the second one is window bound.
+export STATE_DIR=/tmp/schedstate SCAN_PATHS=/tmp/schedlib SCAN_PROGRESS_EVERY=0
+mkdir -p /tmp/schedstate /tmp/schedlib
+: > /tmp/schedlib/p7.mkv
+: > /tmp/schedlib/plain.mkv
+: > /tmp/schedlib/.dovisionarr-out-CCCCCC.mkv
+
+# The stub mirrors the real invariant that makes a scan re-runnable: once a
+# file has been converted it probes as Profile 8 and is never picked up again.
+probe_dv_profile() {
+  case "$(basename "$1")" in
+    p7.mkv) if [ -e "$1.converted" ]; then echo 8; else echo 7; fi ;;
+    *)      echo none ;;
+  esac
+}
+convert_file() { printf '%s\n' "$1" >> /tmp/schedstate/converted; : > "$1.converted"; return 0; }
+
+closed_start="$(date -d '+2 hours' +%H:%M)"; closed_end="$(date -d '+3 hours' +%H:%M)"
+open_start="$(date -d '-1 hour' +%H:%M)";    open_end="$(date -d '+1 hour' +%H:%M)"
+
+SCAN_ENABLED=true SCAN_DAYS='*' SCAN_WINDOW="$closed_start-$closed_end" \
+  scan_paths scheduled || true
+[ ! -e /tmp/schedstate/converted ] || fail "converted outside the maintenance window"
+grep -qxF /tmp/schedlib/p7.mkv /tmp/schedstate/pending \
+  || fail "the walk did not run outside the window, or did not record what it found"
+grep -q 'plain.mkv' /tmp/schedstate/scan-cache \
+  || fail "cache entries were not written as the walk learned them"
+if grep -q 'dovisionarr-out' /tmp/schedstate/scan-cache; then
+  fail "the walk probed one of our own temp files"
+fi
+pass "walked and recorded, converted nothing"
+
+SCAN_ENABLED=true SCAN_DAYS='*' SCAN_WINDOW="$open_start-$open_end" \
+  scan_paths scheduled || true
+[ "$(cat /tmp/schedstate/converted)" = /tmp/schedlib/p7.mkv ] \
+  || fail "the worklist was not drained once the window opened"
+[ ! -s /tmp/schedstate/pending ] || fail "the worklist was not cleared after converting"
+[ "$(_pending_count)" = 0 ] || fail "_pending_count is not a single number on an empty worklist"
+pass "worklist drained in the window, then emptied"
+
+echo "== a manual scan is never cut short by the window =="
+rm -f /tmp/schedstate/converted /tmp/schedstate/pending /tmp/schedstate/scan-cache \
+      /tmp/schedlib/p7.mkv.converted
+SCAN_ENABLED=true SCAN_DAYS='*' SCAN_WINDOW="$closed_start-$closed_end" \
+  scan_paths convert || true
+[ "$(cat /tmp/schedstate/converted)" = /tmp/schedlib/p7.mkv ] \
+  || fail "a manual scan obeyed the maintenance window"
+pass "converted on demand"
+
 echo
 echo "all smoke tests passed"
 INNER

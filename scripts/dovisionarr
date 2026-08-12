@@ -52,8 +52,8 @@ main() {
   local cmd="${1:-worker}"; shift || true
   case "$cmd" in
     worker)          run_worker ;;
-    scan)            banner; scan_paths false "$@" ;;
-    report|dry-run)  banner; scan_paths true  "$@" ;;
+    scan)            banner; scan_paths convert "$@" ;;
+    report|dry-run)  banner; scan_paths report  "$@" ;;
     convert)
       [ "$#" -gt 0 ] || { usage; exit 2; }
       local f rc=0

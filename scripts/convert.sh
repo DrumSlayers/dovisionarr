@@ -6,11 +6,45 @@
 
 _CV_BL='' _CV_TMP='' _CV_LOCKFD=''
 
+# Every temp file this pipeline writes carries this prefix, so a leftover is
+# always identifiable as ours and never as someone else's media.
+CV_TEMP_PREFIX='.dovisionarr-'
+
 _convert_cleanup() {
   [ -n "$_CV_BL"  ] && rm -f -- "$_CV_BL"
   [ -n "$_CV_TMP" ] && rm -f -- "$_CV_TMP"
   [ -n "$_CV_LOCKFD" ] && exec {_CV_LOCKFD}>&-
   _CV_BL='' _CV_TMP='' _CV_LOCKFD=''
+  return 0
+}
+
+# The cleanup above runs on every path the shell controls, but not on SIGKILL —
+# and a 4K remux killed halfway strands the base layer (tens of GB on the
+# scratch disk) plus a partial remux next to the media. Call this only at
+# startup: it is the one moment where no conversion of ours can be in flight,
+# so anything wearing the prefix is certainly garbage.
+sweep_stale_temps() {
+  local -a where=()
+  local r
+  if [ -n "${SCRATCH_DIR:-}" ] && [ -d "$SCRATCH_DIR" ]; then where+=("$SCRATCH_DIR"); fi
+  local IFS=':'
+  # shellcheck disable=SC2206
+  local roots=(${SCAN_PATHS:-/media})
+  unset IFS
+  for r in "${roots[@]}"; do [ -d "$r" ] && where+=("$r"); done
+  [ "${#where[@]}" -gt 0 ] || return 0
+
+  local f sz n=0 bytes=0
+  while IFS= read -r -d '' f; do
+    sz="$(stat -c %s "$f" 2>/dev/null)" || sz=0
+    if rm -f -- "$f" 2>/dev/null; then
+      n=$((n+1)); bytes=$((bytes+sz))
+      debug "removed leftover temp file: $(path "$f")"
+    fi
+  done < <(find "${where[@]}" -type f -name "$CV_TEMP_PREFIX*" -print0 2>/dev/null)
+
+  [ "$n" -gt 0 ] && \
+    warn "removed $(num "$n") leftover temp file(s) from an earlier shutdown — $(num "$(human "$bytes")") reclaimed"
   return 0
 }
 
